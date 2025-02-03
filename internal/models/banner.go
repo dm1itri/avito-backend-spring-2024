@@ -18,15 +18,14 @@ type BannerModel struct {
 	DB *sql.DB
 }
 
-func (model *BannerModel) Get(tagID, featureID int, useLastRevision, isAdmin bool) (json.RawMessage, error) {
+func (model *BannerModel) Get(tagID, featureID int, useLastRevision, isAdmin bool) (row json.RawMessage, err error) {
 	query := `SELECT b.content FROM banners b
     		  JOIN banner_tag_feature btf ON b.id = btf.banner_id AND b.is_active = true
         	  WHERE btf.tag_id = $1 AND btf.feature_id = $2`
 	queryAdmin := `SELECT b.content FROM banners b
     		  JOIN banner_tag_feature btf ON b.id = btf.banner_id
         	  WHERE btf.tag_id = $1 AND btf.feature_id = $2`
-	var row json.RawMessage
-	err := model.DB.QueryRow(func(isAdmin bool) string {
+	err = model.DB.QueryRow(func(isAdmin bool) string {
 		if isAdmin {
 			return queryAdmin
 		}
@@ -36,12 +35,10 @@ func (model *BannerModel) Get(tagID, featureID int, useLastRevision, isAdmin boo
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNoRecord
-		} else {
-			return nil, err
 		}
+		return nil, err
 	}
-
-	return row, nil
+	return
 }
 
 func (model *BannerModel) GetBanners(tagID, featureID, limit, offSet int) ([]json.RawMessage, error) {
@@ -50,20 +47,20 @@ func (model *BannerModel) GetBanners(tagID, featureID, limit, offSet int) ([]jso
         	  WHERE `
 	keys := make([]string, 0, 2)
 	args := make([]any, 0, 4)
-	if tagID != -1 {
+	if tagID != 0 {
 		args = append(args, tagID)
 		keys = append(keys, "btf.tag_id = $1 ")
 	}
-	if featureID != -1 {
+	if featureID != 0 {
 		args = append(args, featureID)
 		keys = append(keys, fmt.Sprintf("btf.feature_id = $%d ", len(args)))
 	}
 	query += strings.Join(keys, " AND ")
-	if limit != -1 {
+	if limit != 0 {
 		args = append(args, limit)
 		query += fmt.Sprintf("LIMIT $%d ", len(args))
 	}
-	if offSet != -1 {
+	if offSet != 0 {
 		args = append(args, offSet)
 		query += fmt.Sprintf("OFFSET $%d", len(args))
 	}
@@ -87,19 +84,39 @@ func (model *BannerModel) GetBanners(tagID, featureID, limit, offSet int) ([]jso
 	return rowsJSON, nil
 }
 
-func (model *BannerModel) PostBanner(tagIDs []int, featureID int, content json.RawMessage, isActive bool) error {
-	var bannerID int
+func (model *BannerModel) PostBanner(tagIDs []int, featureID int, content json.RawMessage, isActive bool) (bannerID int, err error) {
 	query := `INSERT INTO banners (id, content, is_active) VALUES (DEFAULT, $1, $2) RETURNING id`
-	err := model.DB.QueryRow(query, content, isActive).Scan(&bannerID)
+	err = model.DB.QueryRow(query, content, isActive).Scan(&bannerID)
 	if err != nil {
-		return err
+		return
 	}
 	query = `INSERT INTO banner_tag_feature (banner_id, tag_id, feature_id) VALUES ($1, $2, $3)`
 	for i := range tagIDs {
 		_, err = model.DB.Exec(query, bannerID, tagIDs[i], featureID)
 		if err != nil {
-			return err
+			return
 		}
 	}
-	return nil
+	return
+}
+
+func (model *BannerModel) PatchBanner(bannerID, featureID int, tagIDs []int, content json.RawMessage, isActive bool) (err error) {
+	query := `UPDATE banners SET content = $1, is_active = $2 WHERE id = $3`
+	if _, err = model.DB.Exec(query, content, isActive, bannerID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoRecord
+		}
+		return
+	}
+	query = `DELETE FROM banner_tag_feature WHERE banner_id = $1`
+	if _, err = model.DB.Exec(query, bannerID); err != nil {
+		return
+	}
+	query = `INSERT INTO banner_tag_feature (banner_id, tag_id, feature_id) VALUES ($1, $2, $3)`
+	for i := range tagIDs {
+		if _, err = model.DB.Exec(query, bannerID, tagIDs[i], featureID); err != nil {
+			return
+		}
+	}
+	return
 }

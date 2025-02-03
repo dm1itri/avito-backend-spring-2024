@@ -20,15 +20,24 @@ type Banner struct {
 	Content   json.RawMessage `json:"content"`
 }
 
+type BannerID struct {
+	BannerID int `json:"banner_id"`
+}
+
+func setDescriptionStatusCode(description string, statusCode int, w http.ResponseWriter) {
+	w.Header().Set("Description", description)
+	w.WriteHeader(statusCode)
+}
+
 func (app *Application) getUserBanner(w http.ResponseWriter, r *http.Request) {
 	tagID, err := strconv.Atoi(r.URL.Query().Get("tag_id"))
 	if err != nil || tagID < 1 {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 		return
 	}
 	featureID, err := strconv.Atoi(r.URL.Query().Get("feature_id"))
 	if err != nil || featureID < 1 {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 		return
 	}
 	useLastRevision := r.URL.Query().Get("use_last_revision") == "true"
@@ -36,100 +45,107 @@ func (app *Application) getUserBanner(w http.ResponseWriter, r *http.Request) {
 	banner, err := app.banners.Get(tagID, featureID, useLastRevision, isAdmin)
 	if err != nil {
 		if errors.Is(err, models.ErrNoRecord) {
-			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			setDescriptionStatusCode("The banner was not found", http.StatusNotFound, w)
 		} else {
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			setDescriptionStatusCode("Internal server error", http.StatusInternalServerError, w)
 		}
 		return
 	}
 	if err = json.NewEncoder(w).Encode(banner); err != nil {
-		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+		setDescriptionStatusCode("Internal server error", http.StatusInternalServerError, w)
 		return
 	}
 }
 
 func (app *Application) getBanner(w http.ResponseWriter, r *http.Request) {
 	var err error
-	featureID := -1
+	var featureID, tagID, limit, offSet int
 	if featureIDstr := r.URL.Query().Get("feature_id"); featureIDstr != "" {
 		featureID, err = strconv.Atoi(featureIDstr)
 		if err != nil {
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 			return
 		}
 	}
-	tagID := -1
 	if tagIDstr := r.URL.Query().Get("tag_id"); tagIDstr != "" {
 		tagID, err = strconv.Atoi(tagIDstr)
 		if err != nil {
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 			return
 		}
 	}
-
-	limit := -1
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil {
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 			return
 		}
 	}
-
-	offSet := -1
 	if offSetStr := r.URL.Query().Get("offset"); offSetStr != "" {
 		offSet, err = strconv.Atoi(offSetStr)
 		if err != nil {
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 			return
 		}
 	}
 	banners, err := app.banners.GetBanners(tagID, featureID, limit, offSet)
 	if err != nil {
 		if errors.Is(err, models.ErrNoRecord) {
-			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			setDescriptionStatusCode("The banner was not found", http.StatusNotFound, w)
 		} else {
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			setDescriptionStatusCode("Internal server error", http.StatusInternalServerError, w)
 		}
 		return
 	}
 	if err = json.NewEncoder(w).Encode(banners); err != nil {
-		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+		setDescriptionStatusCode("Internal server error", http.StatusInternalServerError, w)
 		return
 	}
 }
 
 func (app *Application) postBanner(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") != "application/json" {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 		return
 	}
 
 	var banner Banner
-	err := json.NewDecoder(r.Body).Decode(&banner)
-	if err != nil {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&banner); err != nil {
+		setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 		return
 	}
-	err = app.banners.PostBanner(banner.TagIDs, banner.FeatureID, banner.Content, banner.IsActive)
+	bannerID, err := app.banners.PostBanner(banner.TagIDs, banner.FeatureID, banner.Content, banner.IsActive)
 	if err != nil {
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		setDescriptionStatusCode("Internal server error", http.StatusInternalServerError, w)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	setDescriptionStatusCode("Created", http.StatusCreated, w)
+	json.NewEncoder(w).Encode(BannerID{BannerID: bannerID})
 }
 
 func (app *Application) patchBannerByID(w http.ResponseWriter, r *http.Request) {
 	params := httprouter.ParamsFromContext(r.Context())
 	id, err := strconv.Atoi(params.ByName("id"))
 	if err != nil || id < 1 {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 		return
 	}
-	if err = json.NewEncoder(w).Encode(Response{Description: "OK"}); err != nil {
-		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+
+	var banner Banner
+	if err = json.NewDecoder(r.Body).Decode(&banner); err != nil {
+		setDescriptionStatusCode("Incorrect data", http.StatusBadRequest, w)
 		return
 	}
+
+	if err = app.banners.PatchBanner(id, banner.FeatureID, banner.TagIDs, banner.Content, banner.IsActive); err != nil {
+		if errors.Is(err, models.ErrNoRecord) {
+			setDescriptionStatusCode("The banner for the tag was not found", http.StatusNotFound, w)
+		} else {
+			setDescriptionStatusCode(err.Error(), http.StatusInternalServerError, w)
+		}
+		return
+	}
+	setDescriptionStatusCode("OK", http.StatusOK, w)
 }
 
 func (app *Application) deleteBannerByID(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +155,7 @@ func (app *Application) deleteBannerByID(w http.ResponseWriter, r *http.Request)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
+
 	if err = json.NewEncoder(w).Encode(Response{Description: "OK"}); err != nil {
 		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 		return
