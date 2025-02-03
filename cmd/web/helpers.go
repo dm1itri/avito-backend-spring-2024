@@ -22,7 +22,7 @@ func (app *Application) isRole(r *http.Request, roleRequired string) bool {
 func generateToken(role string, secretKey []byte) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"role": role,
-		"exp":  time.Now().Add(time.Hour * 24).Unix(), // Токен действителен 24 часа
+		"exp":  time.Now().Add(time.Hour * 24).Unix(),
 	})
 	return token.SignedString(secretKey)
 }
