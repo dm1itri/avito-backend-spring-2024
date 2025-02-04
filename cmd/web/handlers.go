@@ -9,10 +9,6 @@ import (
 	"strconv"
 )
 
-type Response struct {
-	Description string `json:"description"`
-}
-
 type Banner struct {
 	TagIDs    []int           `json:"tag_ids"`
 	FeatureID int             `json:"feature_id"`
@@ -141,7 +137,7 @@ func (app *Application) patchBannerByID(w http.ResponseWriter, r *http.Request) 
 		if errors.Is(err, models.ErrNoRecord) {
 			setDescriptionStatusCode("The banner for the tag was not found", http.StatusNotFound, w)
 		} else {
-			setDescriptionStatusCode(err.Error(), http.StatusInternalServerError, w)
+			setDescriptionStatusCode("Internal server error", http.StatusInternalServerError, w)
 		}
 		return
 	}
@@ -156,8 +152,13 @@ func (app *Application) deleteBannerByID(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err = json.NewEncoder(w).Encode(Response{Description: "OK"}); err != nil {
-		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+	if err = app.banners.DeleteBanner(id); err != nil {
+		if errors.Is(err, models.ErrNoRecord) {
+			setDescriptionStatusCode("The banner for the tag was not found", http.StatusNotFound, w)
+		} else {
+			setDescriptionStatusCode("Internal server error", http.StatusInternalServerError, w)
+		}
 		return
 	}
+	setDescriptionStatusCode("The banner was successfully deleted", http.StatusNoContent, w)
 }

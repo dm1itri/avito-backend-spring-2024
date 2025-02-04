@@ -84,39 +84,91 @@ func (model *BannerModel) GetBanners(tagID, featureID, limit, offSet int) ([]jso
 	return rowsJSON, nil
 }
 
-func (model *BannerModel) PostBanner(tagIDs []int, featureID int, content json.RawMessage, isActive bool) (bannerID int, err error) {
+func (model *BannerModel) PostBanner(tagIDs []int, featureID int, content json.RawMessage, isActive bool) (ID int, err error) {
+	tx, err := model.DB.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
 	query := `INSERT INTO banners (id, content, is_active) VALUES (DEFAULT, $1, $2) RETURNING id`
-	err = model.DB.QueryRow(query, content, isActive).Scan(&bannerID)
+	err = model.DB.QueryRow(query, content, isActive).Scan(&ID)
 	if err != nil {
 		return
 	}
 	query = `INSERT INTO banner_tag_feature (banner_id, tag_id, feature_id) VALUES ($1, $2, $3)`
 	for i := range tagIDs {
-		_, err = model.DB.Exec(query, bannerID, tagIDs[i], featureID)
+		_, err = model.DB.Exec(query, ID, tagIDs[i], featureID)
 		if err != nil {
 			return
 		}
 	}
-	return
+
+	return ID, tx.Commit()
 }
 
-func (model *BannerModel) PatchBanner(bannerID, featureID int, tagIDs []int, content json.RawMessage, isActive bool) (err error) {
+func (model *BannerModel) PatchBanner(ID, featureID int, tagIDs []int, content json.RawMessage, isActive bool) (err error) {
+	tx, err := model.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
 	query := `UPDATE banners SET content = $1, is_active = $2 WHERE id = $3`
-	if _, err = model.DB.Exec(query, content, isActive, bannerID); err != nil {
+	if _, err = model.DB.Exec(query, content, isActive, ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNoRecord
 		}
 		return
 	}
 	query = `DELETE FROM banner_tag_feature WHERE banner_id = $1`
-	if _, err = model.DB.Exec(query, bannerID); err != nil {
+	if _, err = model.DB.Exec(query, ID); err != nil {
 		return
 	}
-	query = `INSERT INTO banner_tag_feature (banner_id, tag_id, feature_id) VALUES ($1, $2, $3)`
+	query = `INSERT INTO banner_tag_feature (banner_id, tag_id, feature_id) VALUES `
+	valueStrings := make([]string, 0, len(tagIDs))
+	valueArgs := make([]any, 0, len(tagIDs)*3)
 	for i := range tagIDs {
-		if _, err = model.DB.Exec(query, bannerID, tagIDs[i], featureID); err != nil {
-			return
-		}
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d)", i*3+1, i*3+2, i*3+3))
+		valueArgs = append(valueArgs, ID, tagIDs[i], featureID)
 	}
-	return
+	if _, err = model.DB.Exec(query+strings.Join(valueStrings, ","), valueArgs...); err != nil {
+		return
+	}
+
+	return tx.Commit()
+}
+
+func (model *BannerModel) DeleteBanner(ID int) error {
+	tx, err := model.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	query := `DELETE FROM banners WHERE id = $1`
+	if _, err = model.DB.Exec(query, ID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoRecord
+		}
+		return err
+	}
+	query = `DELETE FROM banner_tag_feature WHERE banner_id = $1`
+	if _, err = model.DB.Exec(query, ID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
