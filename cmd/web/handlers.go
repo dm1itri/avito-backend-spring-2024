@@ -37,7 +37,7 @@ func (app *Application) getUserBanner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	useLastRevision := r.URL.Query().Get("use_last_revision") == "true"
-	isAdmin := app.isRole(r, "admin")
+	isAdmin := IsRole(r.Header.Get("token"), "admin", app.secretKeyJWT)
 	banner, err := app.banners.Get(tagID, featureID, useLastRevision, isAdmin)
 	if err != nil {
 		if errors.Is(err, models.ErrNoRecord) {

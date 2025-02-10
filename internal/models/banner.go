@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,19 +19,30 @@ type BannerModel struct {
 	DB *sql.DB
 }
 
+//go:embed queries/get_user_banner.sql
+var getUserBanner string
+
+//go:embed queries/get_user_banner_admin.sql
+var getUserBannerAdmin string
+
+//go:embed queries/get_banners.sql
+var getBanners string
+
+//go:embed queries/post_banner.sql
+var postBanner string
+
+//go:embed queries/patch_banner.sql
+var patchBanner string
+
+//go:embed queries/delete_banner.sql
+var deleteBanner string
+
 func (model *BannerModel) Get(tagID, featureID int, useLastRevision, isAdmin bool) (row json.RawMessage, err error) {
-	query := `SELECT b.content FROM banners b
-    		  JOIN banner_tag_feature btf ON b.id = btf.banner_id AND b.is_active = true
-        	  WHERE btf.tag_id = $1 AND btf.feature_id = $2`
-	queryAdmin := `SELECT b.content FROM banners b
-    		  JOIN banner_tag_feature btf ON b.id = btf.banner_id
-        	  WHERE btf.tag_id = $1 AND btf.feature_id = $2`
-	err = model.DB.QueryRow(func(isAdmin bool) string {
-		if isAdmin {
-			return queryAdmin
-		}
-		return query
-	}(isAdmin), tagID, featureID).Scan(&row)
+	if isAdmin {
+		err = model.DB.QueryRow(getUserBannerAdmin, tagID, featureID).Scan(&row)
+	} else {
+		err = model.DB.QueryRow(getUserBanner, tagID, featureID).Scan(&row)
+	}
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -42,9 +54,7 @@ func (model *BannerModel) Get(tagID, featureID int, useLastRevision, isAdmin boo
 }
 
 func (model *BannerModel) GetBanners(tagID, featureID, limit, offSet int) ([]json.RawMessage, error) {
-	query := `SELECT b.content FROM banners b
-    		  JOIN banner_tag_feature btf ON b.id = btf.banner_id
-        	  WHERE `
+	query := getBanners
 	keys := make([]string, 0, 2)
 	args := make([]any, 0, 4)
 	if tagID != 0 {
@@ -55,7 +65,7 @@ func (model *BannerModel) GetBanners(tagID, featureID, limit, offSet int) ([]jso
 		args = append(args, featureID)
 		keys = append(keys, fmt.Sprintf("btf.feature_id = $%d ", len(args)))
 	}
-	query += strings.Join(keys, " AND ")
+	query += " " + strings.Join(keys, " AND ")
 	if limit != 0 {
 		args = append(args, limit)
 		query += fmt.Sprintf("LIMIT $%d ", len(args))
@@ -95,17 +105,19 @@ func (model *BannerModel) PostBanner(tagIDs []int, featureID int, content json.R
 		}
 	}()
 
-	query := `INSERT INTO banners (id, content, is_active) VALUES (DEFAULT, $1, $2) RETURNING id`
-	err = model.DB.QueryRow(query, content, isActive).Scan(&ID)
+	query := strings.Split(postBanner, ";")
+	err = model.DB.QueryRow(query[0], content, isActive).Scan(&ID)
 	if err != nil {
 		return
 	}
-	query = `INSERT INTO banner_tag_feature (banner_id, tag_id, feature_id) VALUES ($1, $2, $3)`
+	valueStrings := make([]string, 0, len(tagIDs))
+	valueArgs := make([]any, 0, len(tagIDs)*3)
 	for i := range tagIDs {
-		_, err = model.DB.Exec(query, ID, tagIDs[i], featureID)
-		if err != nil {
-			return
-		}
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d)", i*3+1, i*3+2, i*3+3))
+		valueArgs = append(valueArgs, ID, tagIDs[i], featureID)
+	}
+	if _, err = model.DB.Exec(query[1]+strings.Join(valueStrings, ","), valueArgs...); err != nil {
+		return
 	}
 
 	return ID, tx.Commit()
@@ -122,25 +134,23 @@ func (model *BannerModel) PatchBanner(ID, featureID int, tagIDs []int, content j
 		}
 	}()
 
-	query := `UPDATE banners SET content = $1, is_active = $2 WHERE id = $3`
-	if _, err = model.DB.Exec(query, content, isActive, ID); err != nil {
+	query := strings.Split(patchBanner, ";")
+	if _, err = model.DB.Exec(query[0], content, isActive, ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNoRecord
 		}
 		return
 	}
-	query = `DELETE FROM banner_tag_feature WHERE banner_id = $1`
-	if _, err = model.DB.Exec(query, ID); err != nil {
+	if _, err = model.DB.Exec(query[1], ID); err != nil {
 		return
 	}
-	query = `INSERT INTO banner_tag_feature (banner_id, tag_id, feature_id) VALUES `
 	valueStrings := make([]string, 0, len(tagIDs))
 	valueArgs := make([]any, 0, len(tagIDs)*3)
 	for i := range tagIDs {
 		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d)", i*3+1, i*3+2, i*3+3))
 		valueArgs = append(valueArgs, ID, tagIDs[i], featureID)
 	}
-	if _, err = model.DB.Exec(query+strings.Join(valueStrings, ","), valueArgs...); err != nil {
+	if _, err = model.DB.Exec(query[2]+" "+strings.Join(valueStrings, ","), valueArgs...); err != nil {
 		return
 	}
 
@@ -158,17 +168,15 @@ func (model *BannerModel) DeleteBanner(ID int) error {
 		}
 	}()
 
-	query := `DELETE FROM banners WHERE id = $1`
-	if _, err = model.DB.Exec(query, ID); err != nil {
+	query := strings.Split(deleteBanner, ";")
+	if _, err = model.DB.Exec(query[0], ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNoRecord
 		}
 		return err
 	}
-	query = `DELETE FROM banner_tag_feature WHERE banner_id = $1`
-	if _, err = model.DB.Exec(query, ID); err != nil {
+	if _, err = model.DB.Exec(query[1], ID); err != nil {
 		return err
 	}
-
 	return tx.Commit()
 }

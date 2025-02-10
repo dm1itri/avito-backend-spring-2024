@@ -1,0 +1,1 @@
+SELECT b.content FROM banners b JOIN banner_tag_feature btf ON b.id = btf.banner_id AND b.is_active = true WHERE btf.tag_id = $1 AND btf.feature_id = $2;

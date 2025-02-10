@@ -8,8 +8,8 @@ import (
 
 func (app *Application) routes() http.Handler {
 	router := httprouter.New()
-	standardChain := alice.New(app.jsonContentTypeMiddleware, app.requireAuthentication)
-	admin := standardChain.Append(app.adminOnly)
+	standardChain := alice.New(app.LogRequest, app.JsonContentTypeMiddleware, app.RequireAuthentication)
+	admin := standardChain.Append(app.AdminOnly)
 
 	router.HandlerFunc(http.MethodGet, "/user_banner", app.getUserBanner)
 

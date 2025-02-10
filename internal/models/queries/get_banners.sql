@@ -1,0 +1,1 @@
+SELECT b.content FROM banners b JOIN banner_tag_feature btf ON b.id = btf.banner_id WHERE

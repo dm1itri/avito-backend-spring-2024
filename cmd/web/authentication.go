@@ -3,23 +3,20 @@ package main
 import (
 	"errors"
 	"github.com/dgrijalva/jwt-go"
-	"net/http"
 	"time"
 )
 
-func (app *Application) isAuthenticated(r *http.Request) bool {
-	token := r.Header.Get("token")
-	_, err := verifyToken(token, app.secretKeyJWT)
+func IsAuthenticated(token string, secretKey []byte) bool {
+	_, err := VerifyToken(token, secretKey)
 	return err == nil
 }
 
-func (app *Application) isRole(r *http.Request, roleRequired string) bool {
-	token := r.Header.Get("token")
-	role, err := verifyToken(token, app.secretKeyJWT)
+func IsRole(token, roleRequired string, secretKey []byte) bool {
+	role, err := VerifyToken(token, secretKey)
 	return err == nil && role == roleRequired
 }
 
-func generateToken(role string, secretKey []byte) (string, error) {
+func GenerateToken(role string, secretKey []byte) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"role": role,
 		"exp":  time.Now().Add(time.Hour * 24).Unix(),
@@ -27,7 +24,7 @@ func generateToken(role string, secretKey []byte) (string, error) {
 	return token.SignedString(secretKey)
 }
 
-func verifyToken(tokenString string, secretKey []byte) (string, error) {
+func VerifyToken(tokenString string, secretKey []byte) (string, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		return secretKey, nil
 	})

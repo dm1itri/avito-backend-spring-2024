@@ -40,12 +40,12 @@ func main() {
 	flag.Parse()
 	app.secretKeyJWT = []byte(*secretKeyJWT)
 
-	if adminToken, err := generateToken("admin", app.secretKeyJWT); err == nil {
+	if adminToken, err := GenerateToken("admin", app.secretKeyJWT); err == nil {
 		app.infoLog.Println("Admin TOKEN:", adminToken)
 	} else {
 		app.errorLog.Fatal(err)
 	}
-	if userToken, err := generateToken("user", app.secretKeyJWT); err == nil {
+	if userToken, err := GenerateToken("user", app.secretKeyJWT); err == nil {
 		app.infoLog.Println("User TOKEN:", userToken)
 	} else {
 		app.errorLog.Fatal(err)
@@ -58,10 +58,11 @@ func main() {
 	defer db.Close()
 
 	app.banners = &models.BannerModel{DB: db}
-
+	app.infoLog.Println("Starting server on", *port)
 	server := http.Server{
-		Addr:    *port,
-		Handler: app.routes(),
+		Addr:     *port,
+		ErrorLog: app.errorLog,
+		Handler:  app.routes(),
 	}
 
 	err = server.ListenAndServe()

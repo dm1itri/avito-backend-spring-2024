@@ -4,29 +4,35 @@ import (
 	"net/http"
 )
 
-func (app *Application) jsonContentTypeMiddleware(next http.Handler) http.Handler {
+func (app *Application) LogRequest(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		app.infoLog.Printf("%s - %s %s %s", r.RemoteAddr, r.Proto, r.Method, r.URL.RequestURI())
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (app *Application) JsonContentTypeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json;")
 		next.ServeHTTP(w, r)
 	})
 }
 
-func (app *Application) requireAuthentication(next http.Handler) http.Handler {
+func (app *Application) RequireAuthentication(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !app.isAuthenticated(r) {
-			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		if !IsAuthenticated(r.Header.Get("token"), app.secretKeyJWT) {
+			setDescriptionStatusCode("The user is not logged in", http.StatusUnauthorized, w)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-func (app *Application) adminOnly(next http.Handler) http.Handler {
+func (app *Application) AdminOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("token")
-		role, err := verifyToken(token, app.secretKeyJWT)
+		role, err := VerifyToken(r.Header.Get("token"), app.secretKeyJWT)
 		if err != nil || role != "admin" {
-			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			setDescriptionStatusCode("The user does not have access", http.StatusForbidden, w)
 			return
 		}
 		next.ServeHTTP(w, r)
